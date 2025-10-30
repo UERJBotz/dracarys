@@ -26,6 +26,8 @@
 
   #undef MIXAR
   #undef FOGO_MANUAL
+  #undef ESPNOW
+  #define RADIO
 
   #define eixo_x_ch   7  /*ch1*/
   #define eixo_y_ch   8  /*ch2*/
@@ -93,12 +95,21 @@ void setup() {
 
 //! se o interruptor tiver no meio, devia usar o eixo x pra mexer os motores pra frente e pra trás
 void loop() {
+  #ifdef RADIO
     // lê o que o rádio manda como pulsos e vê se tão chegando mesmo
     unsigned long pulso_fogo = pulseIn(fogo_ch,     HIGH, 20000);
     unsigned long pulso_x    = pulseIn(eixo_x_ch,   HIGH, 20000);
     unsigned long pulso_y    = pulseIn(eixo_y_ch,   HIGH, 20000);
     unsigned long pulso_isq  = pulseIn(isqueiro_ch, HIGH, 20000);
-    
+  #elif defined(ESPNOW)
+    unsigned long pulso_fogo = 0; //!
+    unsigned long pulso_x    = 0; //!
+    unsigned long pulso_y    = 0; //!
+    unsigned long pulso_isq  = 0; //!
+  #else
+    static_assert(!"comunicação!!!!!!") //!
+  #endif
+
     // failsafe // checa se teve timeout
     if (pulso_fogo + pulso_x + pulso_y + pulso_isq == 0) {
         // desliga os motores e volta o motor de fogo
@@ -172,6 +183,11 @@ void esperar_fogo_desligar() {
 
 void motor_fogo(int16_t vel) {
     motor(fogo_m1,fogo_m2, vel);
+  #if   defined(fogo_m3) && defined(fogo_m4)
+    motor(fogo_m3,fogo_m4, vel);
+  #elif defined(fogo_m3) || defined(fogo_m4)
+    #error "é preciso definir tanto fogo_m3 quanto fogo_m4 se o fogo tiver em 4 pinos"
+  #endif
 }
 void fogo_frente() { motor_fogo( PWM_MAX); }
 void fogo_tras()   { motor_fogo(-PWM_MAX); }
