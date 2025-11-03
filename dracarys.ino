@@ -1,6 +1,12 @@
 #include <Arduino.h>
+#include "comms.h"
 
-#define ASSERT(exp) ((exp) ? 1 : 0 && Serial.printf("%s:%u: assertion %s failed\n", __FILENAME__, __LINE__, #exp))
+#define memeql(a,b,sz) (memcmp(a,b,sz) == 0)
+#define LEN(arr) (sizeof(arr)/sizeof(*arr))
+
+#define ASSERT(exp) ((exp) ? 1 : 0 && \
+          Serial.printf("%s:%u: assertion %s failed\n", \
+                        __FILE__, __LINE__, #exp))
 
 #define PWM_MAX ((1<<10)-1)/*1023*/
 
@@ -19,7 +25,7 @@
 // #define PROTO
 #define DRACARYS
 
-#if defined(PROTO)
+#if   defined(PROTO)
   #warning "robô PROTOBOARD"
 #elif defined(DRACARYS)
   #pragma message "robô DRACARYS"
@@ -48,6 +54,17 @@
   #error "robô NENHUM"
 #endif
 
+#if   defined(RADIO)
+  // checa se teve timeout
+  #define failed() ((pulso_fogo + pulso_isq + \
+                     pulso_x + pulso_y) == 0)
+#elif defined(ESPNOW)
+  // checa se teve timeout
+  #define failed() ((millis() - t_recv) < 1000)
+#else
+  #error "comunicação NENHUMA"
+#endif
+
 struct par {
     union { int16_t esq, x, a; };
     union { int16_t dir, y, b; };
@@ -56,41 +73,93 @@ struct par {
 #define ENUM_ITEM(nome) nome,
 #define ENUM_STR(nome) [nome]=#nome,
 #define ENUM(tipo, lista) \
-    enum  tipo       { lista(ENUM_ITEM) }; \
-    char* tipo##_str[] { lista(ENUM_STR)  } \
+    enum        tipo         { lista(ENUM_ITEM) }; \
+    const char* tipo##_str[] { lista(ENUM_STR)  } \
 
-#define ITENS_PEDIDO(X) \
-    X(TRAS) \
-    X(FRENTE)
+#define ITENS_PEDIDO(ITEM) \
+    ITEM(TRAS) \
+    ITEM(FRENTE)
 ENUM(pedido, ITENS_PEDIDO);
 
-#define ITENS_FOGO(X) \
-    X(PARADO_TRAS) \
-    X(PARADO_FRENTE) \
-    X(INDO) \
-    X(VOLTANDO)
+#define ITENS_FOGO(ITEM) \
+    ITEM(PARADO_TRAS) \
+    ITEM(PARADO_FRENTE) \
+    ITEM(INDO) \
+    ITEM(VOLTANDO)
 ENUM(estado_fogo, ITENS_FOGO);
+
+struct vel { int16_t esq = 0, dir = 0; }; //! nomes
+union vels {
+    int16_t   raw[6];
+    struct vel of[3];
+};
+
+union vels str_to_vels(char *const text, uint8_t len) {
+    const char sep = ' ';
+
+    uint8_t v = 1, seps[6] = {0};
+    for (size_t i = 0; i < len; i++) {
+        if (text[i] == sep) seps[v++] = i;
+
+        if (text[i] == '\0') break;
+        if (v  >= LEN(seps)) break;
+    }
+
+    union vels vels{0};
+    for (size_t i = 0; i < LEN(seps); i++) {
+        vels.raw[i] = atoi(&text[seps[i]]);
+    }
+    return vels;
+}
+
+union vels vels{0};
+unsigned long t_recv = 0;
+void on_recv(const uint8_t* mac, const uint8_t* data, int len) {
+    Packet* msg = (Packet*) (void*)data;
+    if (msg->id != 0) return; //!
+
+    if (!memeql(mac, controle, sizeof(controle))) return;
+
+    t_recv = millis();
+    vels = str_to_vels(msg->vels, msg->len);
+}
+
 
 enum estado_fogo fogo = PARADO_TRAS;
 unsigned long fim_fogo = 0;
 
 void setup() {
+    Serial.begin(115200);
+
+  #if   defined(RADIO)
     pinMode(eixo_x_ch, INPUT);
     pinMode(eixo_y_ch, INPUT);
     pinMode(fogo_ch,   INPUT);
     pinMode(isqueiro_ch, INPUT);
-    
+  #elif defined(ESPNOW)
+    init_wifi();
+    Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
+                  mac_addr[0], mac_addr[1], mac_addr[2],
+                  mac_addr[3], mac_addr[4], mac_addr[5]);
+
+    esp_now_register_recv_cb(esp_now_recv_cb_t(on_recv));
+  #endif
+
     pinMode(roda_esq_m1, OUTPUT);
     pinMode(roda_esq_m2, OUTPUT);
     pinMode(roda_dir_m1, OUTPUT);
     pinMode(roda_dir_m2, OUTPUT);
 
-    pinMode(fogo_m1, OUTPUT);
-    pinMode(fogo_m2, OUTPUT);
-
     pinMode(isqueiro_fogo, OUTPUT);
 
-    Serial.begin(115200);
+    pinMode(fogo_m1, OUTPUT);
+    pinMode(fogo_m2, OUTPUT);
+  #if   defined(fogo_m3) && defined(fogo_m4)
+    pinMode(fogo_m3, OUTPUT);
+    pinMode(fogo_m4, OUTPUT);
+  #elif defined(fogo_m3) || defined(fogo_m4)
+    #error "defina fogo_m3 e fogo_m4 ou nenhum"
+  #endif
 }
 
 //! se o interruptor tiver no meio, devia usar o eixo x pra mexer os motores pra frente e pra trás
@@ -106,12 +175,10 @@ void loop() {
     unsigned long pulso_x    = 0; //!
     unsigned long pulso_y    = 0; //!
     unsigned long pulso_isq  = 0; //!
-  #else
-    static_assert(!"comunicação!!!!!!") //!
   #endif
 
-    // failsafe // checa se teve timeout
-    if (pulso_fogo + pulso_x + pulso_y + pulso_isq == 0) {
+    // failsafe
+    if (failed()) {
         // desliga os motores e volta o motor de fogo
         digitalWrite(isqueiro_fogo, 0);
         mover(0, 0);
@@ -183,10 +250,8 @@ void esperar_fogo_desligar() {
 
 void motor_fogo(int16_t vel) {
     motor(fogo_m1,fogo_m2, vel);
-  #if   defined(fogo_m3) && defined(fogo_m4)
+  #if defined(fogo_m3) && defined(fogo_m4)
     motor(fogo_m3,fogo_m4, vel);
-  #elif defined(fogo_m3) || defined(fogo_m4)
-    #error "é preciso definir tanto fogo_m3 quanto fogo_m4 se o fogo tiver em 4 pinos"
   #endif
 }
 void fogo_frente() { motor_fogo( PWM_MAX); }
