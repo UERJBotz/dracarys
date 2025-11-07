@@ -32,8 +32,8 @@
 
   #undef MIXAR
   #undef FOGO_MANUAL
-  #undef ESPNOW
-  #define RADIO
+  #define ESPNOW
+  #undef RADIO
 
   #define eixo_x_ch   7  /*ch1*/
   #define eixo_y_ch   8  /*ch2*/
@@ -55,12 +55,12 @@
 #endif
 
 #if   defined(RADIO)
-  // checa se teve timeout
+  #warning "comumicação via RADIO"
   #define failed() ((pulso_fogo + pulso_isq + \
-                     pulso_x + pulso_y) == 0)
+                     pulso_x + pulso_y) == 0) /*checa se teve timeout */
 #elif defined(ESPNOW)
-  // checa se teve timeout
-  #define failed() ((millis() - t_recv) < 1000)
+  #warning "comumicação via ESPNOW"
+  #define failed() ((millis() - t_recv) > 1000) /*checa se teve timeout */
 #else
   #error "comunicação NENHUMA"
 #endif
@@ -114,10 +114,19 @@ union vels str_to_vels(char *const text, uint8_t len) {
 
 union vels vels{0};
 unsigned long t_recv = 0;
-void on_recv(const uint8_t* mac, const uint8_t* data, int len) {
+void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
+    #if 1
+      Serial.printf("RECEBIDO PACOTE DE: "
+                    "%02x:%02x:%02x:%02x:%02x:%02x\n",
+                    info->src_addr[0], info->src_addr[1],
+                    info->src_addr[2], info->src_addr[3],
+                    info->src_addr[4], info->src_addr[5]);
+    #endif
+
     Packet* msg = (Packet*) (void*)data;
     if (msg->id != 0) return; //!
 
+    uint8_t* mac = info->src_addr;
     if (!memeql(mac, controle, sizeof(controle))) return;
 
     t_recv = millis();
@@ -138,11 +147,12 @@ void setup() {
     pinMode(isqueiro_ch, INPUT);
   #elif defined(ESPNOW)
     init_wifi();
+    uint8_t* mac_addr = get_mac_addr();
     Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
                   mac_addr[0], mac_addr[1], mac_addr[2],
                   mac_addr[3], mac_addr[4], mac_addr[5]);
 
-    esp_now_register_recv_cb(esp_now_recv_cb_t(on_recv));
+    esp_now_register_recv_cb(on_recv);
   #endif
 
     pinMode(roda_esq_m1, OUTPUT);
@@ -166,14 +176,16 @@ void setup() {
 void loop() {
   #ifdef RADIO
     // lê o que o rádio manda como pulsos e vê se tão chegando mesmo
-    unsigned long pulso_fogo = pulseIn(fogo_ch,     HIGH, 20000);
     unsigned long pulso_x    = pulseIn(eixo_x_ch,   HIGH, 20000);
     unsigned long pulso_y    = pulseIn(eixo_y_ch,   HIGH, 20000);
+    unsigned long pulso_fogo = pulseIn(fogo_ch,     HIGH, 20000);
     unsigned long pulso_isq  = pulseIn(isqueiro_ch, HIGH, 20000);
   #elif defined(ESPNOW)
+    struct vel vel = vels.of[0]; //! hardcoded
+
+    unsigned long pulso_x = map(vel.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
+    unsigned long pulso_y = map(vel.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
     unsigned long pulso_fogo = 0; //!
-    unsigned long pulso_x    = 0; //!
-    unsigned long pulso_y    = 0; //!
     unsigned long pulso_isq  = 0; //!
   #endif
 
@@ -210,8 +222,10 @@ void loop() {
     mover(vels.esq, vels.dir);
 
     //! debug
-    Serial.printf("%4lu, %4lu:\t"  "pwm %5d, %5d | "  "%d, "       "fogo=%s\n",
-                  pulso_x,pulso_y, vels.esq,vels.dir, pedido_fogo, estado_fogo_str[fogo]);
+    Serial.printf(
+      "%4lu, %4lu:\t"  "pwm %5d, %5d | "  "%d, "       "fogo=%s\n",
+      pulso_x,pulso_y, vels.esq,vels.dir, pedido_fogo, estado_fogo_str[fogo]
+    );
 }
 
 //! devia voltar direto o tanto que precisa quando tá indo mas tem que voltar etc
