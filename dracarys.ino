@@ -21,6 +21,8 @@
 
 #define TEMPO_FOGO 1000
 
+// #define DEBUG_RECV
+#define DEBUG_VELS
 
 // #define PROTO
 #define DRACARYS
@@ -55,11 +57,11 @@
 #endif
 
 #if   defined(RADIO)
-  #warning "comumicação via RADIO"
+  #pragma message "comunicação via RADIO"
   #define failed() ((pulso_fogo + pulso_isq + \
                      pulso_x + pulso_y) == 0) /*checa se teve timeout */
 #elif defined(ESPNOW)
-  #warning "comumicação via ESPNOW"
+  #pragma message "comunicação via ESPNOW"
   #define failed() ((millis() - t_recv) > 1000) /*checa se teve timeout */
 #else
   #error "comunicação NENHUMA"
@@ -115,12 +117,12 @@ union vels str_to_vels(char *const text, uint8_t len) {
 union vels vels{0};
 unsigned long t_recv = 0;
 void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
-    #if 1
-      Serial.printf("RECEBIDO PACOTE DE: "
-                    "%02x:%02x:%02x:%02x:%02x:%02x\n",
-                    info->src_addr[0], info->src_addr[1],
-                    info->src_addr[2], info->src_addr[3],
-                    info->src_addr[4], info->src_addr[5]);
+    #ifdef DEBUG_RECV
+    Serial.printf("RECEBIDO PACOTE DE: "
+                  "%02x:%02x:%02x:%02x:%02x:%02x\n",
+                  info->src_addr[0], info->src_addr[1],
+                  info->src_addr[2], info->src_addr[3],
+                  info->src_addr[4], info->src_addr[5]);
     #endif
 
     Packet* msg = (Packet*) (void*)data;
@@ -174,7 +176,7 @@ void setup() {
 
 //! se o interruptor tiver no meio, devia usar o eixo x pra mexer os motores pra frente e pra trás
 void loop() {
-  #ifdef RADIO
+  #if defined(RADIO)
     // lê o que o rádio manda como pulsos e vê se tão chegando mesmo
     unsigned long pulso_x    = pulseIn(eixo_x_ch,   HIGH, 20000);
     unsigned long pulso_y    = pulseIn(eixo_y_ch,   HIGH, 20000);
@@ -221,11 +223,12 @@ void loop() {
                             pulsoPWM(pulso_y));
     mover(vels.esq, vels.dir);
 
-    //! debug
+    #ifdef DEBUG_VELS
     Serial.printf(
       "%4lu, %4lu:\t"  "pwm %5d, %5d | "  "%d, "       "fogo=%s\n",
       pulso_x,pulso_y, vels.esq,vels.dir, pedido_fogo, estado_fogo_str[fogo]
     );
+    #endif
 }
 
 //! devia voltar direto o tanto que precisa quando tá indo mas tem que voltar etc
