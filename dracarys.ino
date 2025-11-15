@@ -62,7 +62,8 @@
                      pulso_x + pulso_y) == 0) /*checa se teve timeout */
 #elif defined(ESPNOW)
   #pragma message "comunicação via ESPNOW"
-  #define failed() ((millis() - t_recv) > 1000) /*checa se teve timeout */
+  #define ESPNOW_TIMEOUT 2000
+  #define failed() ((millis() - t_recv) > ESPNOW_TIMEOUT) /*checa se teve timeout */
 #else
   #error "comunicação NENHUMA"
 #endif
@@ -183,12 +184,13 @@ void loop() {
     unsigned long pulso_fogo = pulseIn(fogo_ch,     HIGH, 20000);
     unsigned long pulso_isq  = pulseIn(isqueiro_ch, HIGH, 20000);
   #elif defined(ESPNOW)
-    struct vel vel = vels.of[0]; //! hardcoded
+    struct vel vel  = vels.of[0]; //! hardcoded
+    struct vel arma = vels.of[1]; //! hardcoded
 
     unsigned long pulso_x = map(vel.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
     unsigned long pulso_y = map(vel.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
-    unsigned long pulso_fogo = 0; //!
-    unsigned long pulso_isq  = 0; //!
+    unsigned long pulso_fogo = map(arma.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
+    unsigned long pulso_isq  = map(arma.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
   #endif
 
     // failsafe
@@ -225,8 +227,8 @@ void loop() {
 
     #ifdef DEBUG_VELS
     Serial.printf(
-      "%4lu, %4lu:\t"  "pwm %5d, %5d | "  "%d, "       "fogo=%s\n",
-      pulso_x,pulso_y, vels.esq,vels.dir, pedido_fogo, estado_fogo_str[fogo]
+      "%4lu, %4lu:\t"  "%4lu %4lu\t"         "pwm %5d, %5d | "  "%d, "       "fogo=%s" "\n",
+      pulso_x,pulso_y, pulso_fogo,pulso_isq, vels.esq,vels.dir, pedido_fogo, estado_fogo_str[fogo]
     );
     #endif
 }
@@ -252,11 +254,13 @@ enum estado_fogo pedir_fogo(enum pedido pedido_atual, enum estado_fogo fogo_atua
         if (fogo_atual == VOLTANDO) return PARADO_TRAS;
     }
 
+  #ifdef DEBUG_ESTADO_PEDIDO
     Serial.printf(
         "pedido: %s, atual: %s\n",
         pedido_str[pedido_atual],
         estado_fogo_str[fogo_atual]
     );
+  #endif
     return fogo_atual;
 }
 
