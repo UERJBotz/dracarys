@@ -12,7 +12,7 @@
 
 #define PULSO_MIN 1000
 #define PULSO_MAX 2000
-#define PULSO_DIF (PULSO_MAX-PULSO_MIN)
+#define PULSO_DIF (PULSO_MAX - PULSO_MIN)
 #define PULSO_MED (PULSO_MIN + PULSO_DIF/2)
 
 #define INTERRUPTOR_BAIXO(p) (p < (PULSO_MIN+PULSO_DIF/3))
@@ -22,15 +22,17 @@
 #define TEMPO_FOGO 1000
 
 // #define DEBUG_RECV
+#define DEBUG_FAILSAFE
+#define DEBUG_ESTADO_PEDIDO
 #define DEBUG_VELS
 
 // #define PROTO
 #define DRACARYS
 
 #if   defined(PROTO)
-  #warning "robô PROTOBOARD"
+  #warning "robô: PROTOBOARD"
 #elif defined(DRACARYS)
-  #pragma message "robô DRACARYS"
+  #pragma message "robô: DRACARYS"
 
   #undef MIXAR
   #undef FOGO_MANUAL
@@ -57,13 +59,13 @@
 #endif
 
 #if   defined(RADIO)
-  #pragma message "comunicação via RADIO"
+  #pragma message "comunicação: RADIO"
   #define failed() ((pulso_fogo + pulso_isq + \
                      pulso_x + pulso_y) == 0) /*checa se teve timeout */
 #elif defined(ESPNOW)
-  #pragma message "comunicação via ESPNOW"
+  #pragma message "comunicação: ESPNOW"
   #define ESPNOW_TIMEOUT 2000
-  #define failed() ((millis() - t_recv) > ESPNOW_TIMEOUT) /*checa se teve timeout */
+  #define failed() (millis() >= t_max_recv) /*checa se teve timeout */
 #else
   #error "comunicação NENHUMA"
 #endif
@@ -91,7 +93,7 @@ ENUM(pedido, ITENS_PEDIDO);
     ITEM(VOLTANDO)
 ENUM(estado_fogo, ITENS_FOGO);
 
-struct vel { int16_t esq = 0, dir = 0; }; //! nomes
+struct vel { int16_t esq, dir; }; //! nomes
 union vels {
     int16_t   raw[6];
     struct vel of[3];
@@ -115,8 +117,8 @@ union vels str_to_vels(char *const text, uint8_t len) {
     return vels;
 }
 
-union vels vels{0};
-unsigned long t_recv = 0;
+/*volatile*/ union vels vels{0}; //!
+volatile unsigned long t_max_recv = 0;
 void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
     #ifdef DEBUG_RECV
     Serial.printf("RECEBIDO PACOTE DE: "
@@ -132,7 +134,7 @@ void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
     uint8_t* mac = info->src_addr;
     if (!memeql(mac, controle, sizeof(controle))) return;
 
-    t_recv = millis();
+    t_max_recv = millis() + ESPNOW_TIMEOUT;
     vels = str_to_vels(msg->vels, msg->len);
 }
 
@@ -178,30 +180,33 @@ void setup() {
 //! se o interruptor tiver no meio, devia usar o eixo x pra mexer os motores pra frente e pra trás
 void loop() {
   #if defined(RADIO)
-    // lê o que o rádio manda como pulsos e vê se tão chegando mesmo
+    // lê o que o rádio manda como pulsos
     unsigned long pulso_x    = pulseIn(eixo_x_ch,   HIGH, 20000);
     unsigned long pulso_y    = pulseIn(eixo_y_ch,   HIGH, 20000);
     unsigned long pulso_fogo = pulseIn(fogo_ch,     HIGH, 20000);
     unsigned long pulso_isq  = pulseIn(isqueiro_ch, HIGH, 20000);
   #elif defined(ESPNOW)
+    // lê o que o foi recebido por espnow e (por enquanto) cploca no formato do rádio
     struct vel vel  = vels.of[0]; //! hardcoded
     struct vel arma = vels.of[1]; //! hardcoded
 
-    unsigned long pulso_x = map(vel.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
-    unsigned long pulso_y = map(vel.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
+    unsigned long pulso_x    = map(vel.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
+    unsigned long pulso_y    = map(vel.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
     unsigned long pulso_fogo = map(arma.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
     unsigned long pulso_isq  = map(arma.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
   #endif
 
     // failsafe
     if (failed()) {
-        // desliga os motores e volta o motor de fogo
-        digitalWrite(isqueiro_fogo, 0);
-        mover(0, 0);
-        esperar_fogo_desligar();
+      #ifdef DEBUG_FAILSAFE
+        unsigned long exc = millis() - t_max_recv; //! esse exc só faz sentido pro espnow
+        Serial.printf("tentando failsafe: fogo=%s, "             "%lu" "\n",
+                                          estado_fogo_str[fogo],  exc);
+      #endif
 
-        //! debug
-        Serial.printf("tentando failsafe: fogo=%s\n", estado_fogo_str[fogo]);
+        // desliga os motores das rodas e volta o motor de fogo
+        digitalWrite(isqueiro_fogo, 0); mover(0, 0);
+        esperar_fogo_desligar();
 
         // tenta de novo
         return;
@@ -234,7 +239,8 @@ void loop() {
 }
 
 //! devia voltar direto o tanto que precisa quando tá indo mas tem que voltar etc
-enum estado_fogo pedir_fogo(enum pedido pedido_atual, enum estado_fogo fogo_atual) {
+enum estado_fogo pedir_fogo(enum pedido pedido_atual,
+                            enum estado_fogo fogo_atual) {
     if (fogo_atual == PARADO_FRENTE) {
         if (pedido_atual == FRENTE) return fogo_atual;
 
