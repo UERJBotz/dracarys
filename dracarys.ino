@@ -54,6 +54,8 @@
   #define fogo_m2 6
 
   #define isqueiro_fogo 0
+
+  #define CONTROLE controle_preto_j_verm
 #else
   #error "robô NENHUM"
 #endif
@@ -120,19 +122,21 @@ union vels str_to_vels(char *const text, uint8_t len) {
 /*volatile*/ union vels vels{0}; //!
 volatile unsigned long t_max_recv = 0;
 void on_recv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
-    #ifdef DEBUG_RECV
+  #ifdef DEBUG_RECV
     Serial.printf("RECEBIDO PACOTE DE: "
                   "%02x:%02x:%02x:%02x:%02x:%02x\n",
                   info->src_addr[0], info->src_addr[1],
                   info->src_addr[2], info->src_addr[3],
                   info->src_addr[4], info->src_addr[5]);
-    #endif
+  #endif
 
     Packet* msg = (Packet*) (void*)data;
     if (msg->id != 0) return; //!
 
+  #ifdef CONTROLE
     uint8_t* mac = info->src_addr;
-    if (!memeql(mac, controle, sizeof(controle))) return;
+    if (!memeql(mac, CONTROLE, sizeof(CONTROLE))) return;
+  #endif //CONTROLE
 
     t_max_recv = millis() + ESPNOW_TIMEOUT;
     vels = str_to_vels(msg->vels, msg->len);
@@ -151,13 +155,7 @@ void setup() {
     pinMode(fogo_ch,   INPUT);
     pinMode(isqueiro_ch, INPUT);
   #elif defined(ESPNOW)
-    init_wifi();
-    uint8_t* mac_addr = get_mac_addr();
-    Serial.printf("MAC: %02x:%02x:%02x:%02x:%02x:%02x\n",
-                  mac_addr[0], mac_addr[1], mac_addr[2],
-                  mac_addr[3], mac_addr[4], mac_addr[5]);
-
-    esp_now_register_recv_cb(on_recv);
+    espnow_setup(on_recv);
   #endif
 
     pinMode(roda_esq_m1, OUTPUT);
@@ -186,12 +184,12 @@ void loop() {
     unsigned long pulso_fogo = pulseIn(fogo_ch,     HIGH, 20000);
     unsigned long pulso_isq  = pulseIn(isqueiro_ch, HIGH, 20000);
   #elif defined(ESPNOW)
-    // lê o que o foi recebido por espnow e (por enquanto) cploca no formato do rádio
+    // lê o que o foi recebido por espnow e (por enquanto) coloca no formato do rádio
     struct vel vel  = vels.of[0]; //! hardcoded
     struct vel arma = vels.of[1]; //! hardcoded
 
-    unsigned long pulso_x    = map(vel.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
-    unsigned long pulso_y    = map(vel.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
+    unsigned long pulso_x    = map(vel.esq,  -127, 127, PULSO_MIN, PULSO_MAX); //! hack
+    unsigned long pulso_y    = map(vel.dir,  -127, 127, PULSO_MIN, PULSO_MAX); //! hack
     unsigned long pulso_fogo = map(arma.esq, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
     unsigned long pulso_isq  = map(arma.dir, -127, 127, PULSO_MIN, PULSO_MAX); //! hack
   #endif
@@ -271,7 +269,7 @@ enum estado_fogo pedir_fogo(enum pedido pedido_atual,
 }
 
 bool acabou_fogo() { return millis() > fim_fogo; }
-void esperar_fogo_desligar() { 
+void esperar_fogo_desligar() {
     while (fogo != PARADO_TRAS) fogo = pedir_fogo(TRAS, fogo);
 }
 
