@@ -48,13 +48,13 @@
   #define roda_esq_m1 1
   #define roda_esq_m2 2
 
-  #define roda_dir_m1 3
-  #define roda_dir_m2 4
+  #define roda_dir_m1 4
+  #define roda_dir_m2 3
 
   #define fogo_m1 5
   #define fogo_m2 6
 
-  #define isqueiro_fogo 0
+  #define isqueiro_fogo 10
 
   #define CONTROLE controle_preto_j_verm
 #else
