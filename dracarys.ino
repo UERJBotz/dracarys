@@ -20,6 +20,7 @@
 #define INTERRUPTOR_MEIO(p)  (!INTERRUPTOR_BAIXO(p) && !INTERRUPTOR_ALTO(p))
 
 #define TEMPO_FOGO 1000
+#define TEMPO_FOGO_RESET 1000
 
 // #define DEBUG_RECV
 #define DEBUG_FAILSAFE
@@ -173,6 +174,9 @@ void setup() {
   #elif defined(fogo_m3) || defined(fogo_m4)
     #error "defina fogo_m3 e fogo_m4 ou nenhum"
   #endif
+
+    motor_fogo(-PWM_MAX); delay(TEMPO_FOGO_RESET);
+    motor_fogo(0);
 }
 
 //! se o interruptor tiver no meio, devia usar o eixo x pra mexer os motores pra frente e pra trás
