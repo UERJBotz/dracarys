@@ -61,6 +61,10 @@
   #error "robô NENHUM"
 #endif
 
+#if CONTROLE == controle_laranja_duplo
+  #define FOGO_MANUAL
+#endif
+
 #if   defined(RADIO)
   #pragma message "comunicação: RADIO"
   #define failed() ((pulso_fogo + pulso_isq + \
@@ -158,6 +162,9 @@ void setup() {
   #elif defined(ESPNOW)
     espnow_setup(on_recv);
   #endif
+
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, LOW); //!
 
     pinMode(roda_esq_m1, OUTPUT);
     pinMode(roda_esq_m2, OUTPUT);
