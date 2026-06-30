@@ -61,9 +61,8 @@
   #error "robô NENHUM"
 #endif
 
-#if CONTROLE == controle_laranja_duplo
-  #define FOGO_MANUAL
-#endif
+//! fazer X_MACRO com enum e lista de endereços mac pra poder comparar e fazer coisa diferente com base no controle
+//! mudar isso aqui pra ser um caso específico do código geral, no outro repositório
 
 #if   defined(RADIO)
   #pragma message "comunicação: RADIO"
@@ -232,24 +231,33 @@ void loop() {
   #endif
 
     // isqueiro
-    digitalWrite(isqueiro_fogo, pulso_isq > PULSO_MED);
+    bool pedido_isqueiro = pulso_isq > PULSO_MED;
+    digitalWrite(isqueiro_fogo, pedido_isqueiro);
 
     // movimento
     struct par vels = mixar(pulsoPWM(pulso_x),
                             pulsoPWM(pulso_y));
     mover(vels.esq, vels.dir);
 
-    #ifdef DEBUG_VELS
+  #ifdef DEBUG_VELS
     Serial.printf(
-      "%4lu, %4lu:\t"  "%4lu %4lu\t"         "pwm %5d, %5d | "  "%d, "       "fogo=%s" "\n",
-      pulso_x,pulso_y, pulso_fogo,pulso_isq, vels.esq,vels.dir, pedido_fogo, estado_fogo_str[fogo]
+      "%4lu, %4lu:\t"  "pwm %5d, %5d | "  "%d, "       "%d,"           "fogo=%s" "\n",
+      pulso_x,pulso_y, vels.esq,vels.dir, pedido_fogo, pedido_isqueiro, estado_fogo_str[fogo]
     );
-    #endif
+  #endif
 }
 
 //! devia voltar direto o tanto que precisa quando tá indo mas tem que voltar etc
 enum estado_fogo pedir_fogo(enum pedido pedido_atual,
                             enum estado_fogo fogo_atual) {
+
+  #ifdef DEBUG_ESTADO_PEDIDO
+    Serial.printf(
+        "pedido: %s, atual: %s\n",
+        pedido_str[pedido_atual],
+        estado_fogo_str[fogo_atual]
+    );
+  #endif
     if (fogo_atual == PARADO_FRENTE) {
         if (pedido_atual == FRENTE) return fogo_atual;
 
@@ -269,13 +277,6 @@ enum estado_fogo pedir_fogo(enum pedido pedido_atual,
         if (fogo_atual == VOLTANDO) return PARADO_TRAS;
     }
 
-  #ifdef DEBUG_ESTADO_PEDIDO
-    Serial.printf(
-        "pedido: %s, atual: %s\n",
-        pedido_str[pedido_atual],
-        estado_fogo_str[fogo_atual]
-    );
-  #endif
     return fogo_atual;
 }
 
